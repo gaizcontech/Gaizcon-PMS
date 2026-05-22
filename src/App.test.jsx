@@ -1,9 +1,12 @@
-import { expect, test } from 'vitest';
+import { beforeEach, expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+beforeEach(() => {
+  localStorage.clear();
+});
+
+test('renders sign in screen when not authenticated', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeDefined();
+  expect(screen.getByText(/sign in to access your dashboard/i)).toBeDefined();
 });
