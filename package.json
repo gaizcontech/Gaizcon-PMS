@@ -6,8 +6,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/codespaces-react.git"
+    "url": "git+https://github.com/gaizcontech/codespaces-react.git"
   },
+  "homepage": "https://gaizcontech.github.io/codespaces-react",
   "dependencies": {
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
