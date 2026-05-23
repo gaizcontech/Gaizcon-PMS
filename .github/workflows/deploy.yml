@@ -1,0 +1,99 @@
+name: Deploy to pms.gaizcontech.in
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    name: Build and deploy (atomic)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Add remote host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts || true
+
+      - name: Prepare remote temp dir
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            TMP_DIR="/tmp/deploy_${{ github.run_id }}"
+            rm -rf "$TMP_DIR"
+            mkdir -p "$TMP_DIR"
+
+      - name: Upload build to remote temp dir
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "dist/*"
+          target: "/tmp/deploy_${{ github.run_id }}/"
+
+      - name: Atomic deploy: swap temp -> target with backup
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -euo pipefail
+            TMP_DIR="/tmp/deploy_${{ github.run_id }}"
+            TARGET="${{ secrets.DEPLOY_PATH }}"
+            TIMESTAMP=$(date +%s)
+            BACKUP="${TARGET}.bak.${TIMESTAMP}"
+
+            # Ensure TMP_DIR exists and contains files
+            if [ ! -d "$TMP_DIR" ]; then
+              echo "Temp dir $TMP_DIR not found" && exit 1
+            fi
+
+            # Make parent dir
+            mkdir -p "$(dirname "$TARGET")"
+
+            # Move existing target to backup (if exists)
+            if [ -d "$TARGET" ]; then
+              mv "$TARGET" "$BACKUP" || true
+            fi
+
+            # Move temp into place
+            mv "$TMP_DIR" "$TARGET"
+
+            # Ensure permissions
+            chmod -R 755 "$TARGET" || true
+
+            # Cleanup old backups (older than 7 days)
+            find "$(dirname "$TARGET")" -maxdepth 1 -type d -name "$(basename "$TARGET").bak.*" -mtime +7 -exec rm -rf {} + || true
+
+            # Reload nginx if present
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl reload nginx || true
+            fi
+
+# Required repository secrets (set in GitHub > Settings > Secrets & variables > Actions):
+# - DEPLOY_HOST: pms.gaizcontech.in
+# - DEPLOY_USER: ssh username (e.g., ubuntu)
+# - DEPLOY_PORT: SSH port (default: 22)
+# - DEPLOY_PATH: destination path on server (e.g., /var/www/pms)
+# - SSH_PRIVATE_KEY: private key for SSH authentication (no passphrase recommended)
